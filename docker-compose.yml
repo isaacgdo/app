@@ -1,39 +1,175 @@
 version: '3'
 services:
-  zookeeper:
+  zookeeper1:
     image: confluentinc/cp-zookeeper:latest
-    container_name: zookeeper
+    hostname: zookeeper1
+    container_name: zookeeper1
     ports:
       - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+    env_file:
+      - ./envs/zookeeper1.env
     volumes: 
-     - ./zookeeper-data:/var/lib/zookeeper/data
-     - ./zookeeper-log:/var/lib/zookeeper/log
+      - ./datakafka/zookeeper1/data:/var/lib/zookeeper/data
+      - ./datakafka/zookeeper1/log:/var/lib/zookeeper/log
+    networks:
+      - app-network
 
-  broker:
+  zookeeper2:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper2
+    container_name: zookeeper2
+    ports:
+      - "2182:2181"
+    env_file:
+      - ./envs/zookeeper2.env
+    volumes:
+      - ./datakafka/zookeeper2/data:/var/lib/zookeeper/data
+      - ./datakafka/zookeeper2/log:/var/lib/zookeeper/log
+    networks:
+      - app-network
+
+  zookeeper3:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper3
+    container_name: zookeeper3
+    ports:
+      - "2183:2181"
+    env_file:
+      - ./envs/zookeeper3.env
+    volumes:
+      - ./datakafka/zookeeper3/data:/var/lib/zookeeper/data
+      - ./datakafka/zookeeper3/log:/var/lib/zookeeper/log
+    networks:
+      - app-network
+    
+  broker1:
     image: confluentinc/cp-kafka:latest
+    hostname: broker1
     container_name: broker1
     ports:
-      - "9092:9092"
+      - "9091:9091"
     depends_on:
-      - zookeeper
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://broker:29092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-    volumes: 
-     - ./broker-data:/var/lib/kafka/data
+      - zookeeper1
+      - zookeeper2
+      - zookeeper3
+    env_file:
+      - ./envs/broker1.env
+    volumes:
+      - ./datakafka/broker1/data:/var/lib/kafka/data
+    networks:
+      - app-network
 
-# volumes:
-#   zookeeper-data:
-#     external: true
-#   zookeeper-log:
-#     external: true
-#   broker-data:
-#     external: true
+  broker2:
+    image: confluentinc/cp-kafka:latest
+    hostname: broker2
+    container_name: broker2
+    ports:
+      - "9093:9093"
+    depends_on:
+      - zookeeper1
+      - zookeeper2
+      - zookeeper3
+    env_file:
+      - ./envs/broker2.env
+    volumes:
+      - ./datakafka/broker2/data:/var/lib/kafka/data
+    networks:
+      - app-network
+
+  broker3:
+    image: confluentinc/cp-kafka:latest
+    hostname: broker3
+    container_name: broker3
+    ports:
+      - "9095:9095"
+    depends_on:
+      - zookeeper1
+      - zookeeper2
+      - zookeeper3
+    env_file:
+      - ./envs/broker3.env
+    volumes:
+      - ./datakafka/broker3/data:/var/lib/kafka/data
+    networks:
+      - app-network
+
+  producer-service:
+    build: ./producer-service
+    hostname: producer-service
+    container_name: producer-service
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+    env_file:
+      - ./envs/producer-service.env
+    networks:
+      - app-network
+
+  processor-service:
+    build: ./processor-service
+    hostname: processor-service
+    container_name: processor-service
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+    env_file:
+      - ./envs/processor-service.env
+    networks:
+      - app-network
+
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:latest
+    hostname: kafka-connect
+    container_name: kafka-connect
+    ports:
+      - "8083:8083"
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+    env_file:
+      - ./envs/connect.env
+    command:
+      - bash
+      - -c
+      - |
+        echo "Installing Connector"
+        confluent-hub install --no-prompt mongodb/kafka-connect-mongodb:1.5.0
+        #
+        echo "Launching Kafka Connect worker"
+        /etc/confluent/docker/run &
+        #
+        sleep infinity
+    networks:
+      - app-network
+
+  mongodb:
+    image: mongo:latest
+    hostname: mongodb
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongodb:/data/db
+    networks:
+      - app-network
+
+  metabase:
+    image: metabase/metabase:latest
+    hostname: metabase
+    container_name: metabase
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+    volumes:
+      - ./data/metabase/data:/metabase-data
+      - ./data/metabase/db:/metabase.db
+    networks:
+      - app-network
+      
+networks:
+  app-network:
+    driver: bridge
