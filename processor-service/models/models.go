@@ -94,25 +94,23 @@ type CommentItemData struct {
 }
 
 type CommentOutputData struct {
-	ID                string    `json:"id"`
-	ChannelID         string    `json:"channelId"`
-	ChannelTitle      string    `json:"channelTitle"`
-	VideoID           string    `json:"videoId"` // index
-	TextDisplay       string    `json:"textDisplay"`
-	TextOriginal      string    `json:"textOriginal"`
-	AuthorDisplayName string    `json:"authorDisplayName"`
-	CanRate           bool      `json:"canRate"`
-	ViewerRating      string    `json:"viewerRating"`
-	LikeCount         int       `json:"likeCount"`
-	PublishedAt       time.Time `json:"publishedAt"`
-	CanReply          bool      `json:"canReply"`
-	TotalReplyCount   int       `json:"totalReplyCount"`
-	ParentID          string    `json:"parentId"` // is reply
-	VideoPublishedAt  time.Time `json:"videoPublishedAt"`
-	VideoTitle        string    `json:"videoTitle"`
-	VideoViewCount    int       `json:"videoViewCount"`
-	VideoLikeCount    int       `json:"videoLikeCount"`
-	VideoCommentCount int       `json:"videoCommentCount"`
-	VideoTags         []string  `json:"videoTags"`
-	//VideoTopicCategories []string  `json:"videoTopicCategories"`
+	ID                string   `json:"id"`
+	ChannelID         string   `json:"channelId"`
+	ChannelTitle      string   `json:"channelTitle"`
+	VideoID           string   `json:"videoId"` // index
+	TextDisplay       string   `json:"textDisplay"`
+	TextOriginal      string   `json:"textOriginal"`
+	AuthorDisplayName string   `json:"authorDisplayName"`
+	CanRate           bool     `json:"canRate"`
+	LikeCount         int      `json:"likeCount"`
+	PublishedAt       int64    `json:"publishedAt"`
+	CanReply          bool     `json:"canReply"`
+	TotalReplyCount   int      `json:"totalReplyCount"`
+	ParentID          string   `json:"parentId"` // is reply
+	VideoPublishedAt  int64    `json:"videoPublishedAt"`
+	VideoTitle        string   `json:"videoTitle"`
+	VideoViewCount    int      `json:"videoViewCount"`
+	VideoLikeCount    int      `json:"videoLikeCount"`
+	VideoCommentCount int      `json:"videoCommentCount"`
+	VideoTags         []string `json:"videoTags"`
 }

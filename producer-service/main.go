@@ -41,8 +41,8 @@ func main() {
 			"message.max.bytes":  2097164, // the same of kafka topics
 			"client.id":          "producer-service",
 			// min.insync.replicas
-			// linger.ms
-			// batch.size
+			// linger.ms   // batch by time
+			// batch.size   // batch by size
 		},
 	)
 	if err != nil {
@@ -156,48 +156,6 @@ func iterateCommentItems(dataChan chan<- *models.CommentItemData, data *models.C
 	return data.NextPageToken
 }
 
-func fetchFreeSearchData(baseApiUrl, apiKey string) (*models.SearchData, error) {
-	searchEndpoint := fmt.Sprintf("%s/search/", baseApiUrl)
-	params := url.Values{}
-	params.Set("part", "id,snippet")
-	params.Set("maxResults", "50")
-	params.Set("type", "video")
-	params.Set("publishedAfter", "2023-05-22T02:24:32Z")
-	params.Set("regionCode", "br")
-	params.Set("q", "python")
-	params.Set("order", "date")
-	params.Set("fields", "items(id,snippet(publishedAt,channelId,title,description,channelTitle,liveBroadcastContent,publishTime))")
-	params.Set("key", apiKey)
-
-	u, err := url.Parse(searchEndpoint)
-	if err != nil {
-		log.Println("Error parsing URL:", err)
-		return nil, err
-	}
-
-	u.RawQuery = params.Encode()
-	fullURL := u.String()
-
-	resp, err := http.Get(fullURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request returned non-OK status: %v", resp.StatusCode)
-	}
-
-	var data models.SearchData
-	// rever necessidade de decodar o json
-	err = json.NewDecoder(resp.Body).Decode(&data)
-	if err != nil {
-		return nil, err
-	}
-
-	return &data, nil
-}
-
 func createMessage(data *models.CommentItemData) ([]byte, error) {
 	message, err := json.Marshal(data)
 	if err != nil {
@@ -207,6 +165,20 @@ func createMessage(data *models.CommentItemData) ([]byte, error) {
 }
 
 func sendToKafka(producer *kafka.Producer, dataChan <-chan *models.CommentItemData) {
+	// Delivery report handler for produced messages
+	go func() {
+		for e := range producer.Events() {
+			switch ev := e.(type) {
+			case *kafka.Message:
+				if ev.TopicPartition.Error != nil {
+					log.Println("Failed to deliver message to Kafka:", ev.TopicPartition.Error)
+				} else {
+					log.Println("Message sent to Kafka:", ev.TopicPartition)
+				}
+			}
+		}
+	}()
+
 	for data := range dataChan {
 		message, err := createMessage(data)
 		if err != nil {
@@ -221,26 +193,15 @@ func sendToKafka(producer *kafka.Producer, dataChan <-chan *models.CommentItemDa
 			data.Snippet.TopLevelComment.Snippet.TextDisplay,
 		)
 
-		deliveryChan := make(chan kafka.Event)
-
 		err = producer.Produce(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &kafkaTopic, Partition: kafka.PartitionAny},
 			Value:          message,
-			// key: key   explorar vantagens de escrever com uma key
-		}, deliveryChan)
+		}, nil)
 
 		if err != nil {
 			log.Println("Failed to produce message to Kafka:", err)
 			continue
 		}
-
-		e := <-deliveryChan
-		m := e.(*kafka.Message)
-
-		if m.TopicPartition.Error != nil {
-			log.Println("Failed to deliver message to Kafka:", m.TopicPartition.Error)
-		}
-		log.Println("Message sent to Kafka:", m.TopicPartition)
 	}
 
 	// Wait for any outstanding messages to be delivered before exiting

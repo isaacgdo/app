@@ -66,6 +66,20 @@ func main() {
 	}
 	defer producer.Close()
 
+	// Delivery report handler for produced messages
+	go func() {
+		for e := range producer.Events() {
+			switch ev := e.(type) {
+			case *kafka.Message:
+				if ev.TopicPartition.Error != nil {
+					log.Println("Failed to deliver message to Kafka:", ev.TopicPartition.Error)
+				} else {
+					log.Println("Message sent to Kafka:", ev.TopicPartition)
+				}
+			}
+		}
+	}()
+
 	// Subscribe to the Kafka topic
 	err = consumer.SubscribeTopics(kafkaInputTopics, nil)
 	if err != nil {
@@ -77,7 +91,7 @@ func main() {
 	messageChan := make(chan *kafka.Message)
 	commitCH := make(chan bool, 1)
 
-	// create to send messages processed to produce at output topic
+	// create channel to send processed messages to be produce at output topic
 	produceChan := make(chan *models.CommentOutputData)
 
 	// Start a goroutine to consume messages and a go routine to send messages to kafka output topic
@@ -134,6 +148,7 @@ func consume(consumer *kafka.Consumer, messageChan chan *kafka.Message, commitCH
 	for {
 		m, err := consumer.ReadMessage(-1)
 		if err != nil {
+			log.Printf("Consumer error: %v (%v)\n", err, m)
 			continue
 		}
 
@@ -236,13 +251,12 @@ func buildOutputResponse(comment *models.CommentItemData, video *models.VideoIte
 		TextOriginal:      comment.Snippet.TopLevelComment.Snippet.TextOriginal,
 		AuthorDisplayName: comment.Snippet.TopLevelComment.Snippet.AuthorDisplayName,
 		CanRate:           comment.Snippet.TopLevelComment.Snippet.CanRate,
-		ViewerRating:      comment.Snippet.TopLevelComment.Snippet.ViewerRating,
 		LikeCount:         comment.Snippet.TopLevelComment.Snippet.LikeCount,
-		PublishedAt:       comment.Snippet.TopLevelComment.Snippet.PublishedAt.In(localTimezone),
+		PublishedAt:       comment.Snippet.TopLevelComment.Snippet.PublishedAt.In(localTimezone).Unix(),
 		CanReply:          comment.Snippet.CanReply,
 		TotalReplyCount:   comment.Snippet.TotalReplyCount,
 		ParentID:          "",
-		VideoPublishedAt:  video.Snippet.PublishedAt.In(localTimezone),
+		VideoPublishedAt:  video.Snippet.PublishedAt.In(localTimezone).Unix(),
 		VideoTitle:        video.Snippet.Title,
 		VideoViewCount:    videoViewCount,
 		VideoLikeCount:    videoLikeCount,
@@ -262,13 +276,12 @@ func buildOutputResponse(comment *models.CommentItemData, video *models.VideoIte
 			TextOriginal:      reply.Snippet.TextOriginal,
 			AuthorDisplayName: reply.Snippet.AuthorDisplayName,
 			CanRate:           reply.Snippet.CanRate,
-			ViewerRating:      reply.Snippet.ViewerRating,
 			LikeCount:         reply.Snippet.LikeCount,
-			PublishedAt:       reply.Snippet.PublishedAt.In(localTimezone),
+			PublishedAt:       reply.Snippet.PublishedAt.In(localTimezone).Unix(),
 			CanReply:          false,
 			TotalReplyCount:   0,
 			ParentID:          reply.Snippet.ParentID,
-			VideoPublishedAt:  video.Snippet.PublishedAt.In(localTimezone),
+			VideoPublishedAt:  video.Snippet.PublishedAt.In(localTimezone).Unix(),
 			VideoTitle:        video.Snippet.Title,
 			VideoViewCount:    videoViewCount,
 			VideoLikeCount:    videoLikeCount,
@@ -298,26 +311,15 @@ func sendOutputMessage(producer *kafka.Producer, produceChan <-chan *models.Comm
 }
 
 func sendToKafka(producer *kafka.Producer, message []byte, topic string) error {
-	deliveryChan := make(chan kafka.Event)
-
 	err := producer.Produce(&kafka.Message{
 		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Value:          message,
-	}, deliveryChan)
+	}, nil)
 
 	if err != nil {
 		log.Println("Failed to produce message to Kafka:", err)
 		return err
 	}
-
-	e := <-deliveryChan
-	m := e.(*kafka.Message)
-
-	if m.TopicPartition.Error != nil {
-		log.Println("Failed to deliver message to Kafka:", m.TopicPartition.Error)
-		return m.TopicPartition.Error
-	}
-	log.Println("Message sent to Kafka:", m.TopicPartition)
 
 	return nil
 }
