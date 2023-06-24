@@ -145,6 +145,21 @@ services:
     networks:
       - app-network
 
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    hostname: kafdrop
+    container_name: kafdrop
+    depends_on:
+      - broker1
+      - broker2
+      - broker3
+    ports:
+      - 19000:9000
+    environment:
+      KAFKA_BROKERCONNECT: broker1:9092
+    networks: 
+      - app-network
+
   mongodb:
     image: mongo:latest
     hostname: mongodb
