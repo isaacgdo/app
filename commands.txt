@@ -1,5 +1,4 @@
 # DATA FILES
-CURRENT_UID=$(id -u):$(id -g)
 mkdir -p datakafka/zookeeper1/data && \
 mkdir -p datakafka/zookeeper1/log && \
 mkdir -p datakafka/zookeeper2/data && \
@@ -8,7 +7,7 @@ mkdir -p datakafka/zookeeper3/data && \
 mkdir -p datakafka/zookeeper3/log && \
 mkdir -p datakafka/broker1/data && \
 mkdir -p datakafka/broker2/data && \
-mkdir -p datakafka/broker3/data
+mkdir -p datakafka/broker3/data && \
 sudo chown -R 1000:1000 datakafka
 
 
@@ -19,12 +18,15 @@ docker compose down
 docker compose ps
 docker compose logs -f
 docker exec -it broker1 bash
+docker exec broker2 kafka-server-stop
+docker exec zookeeper2 zookeeper-server-stop
 sudo service docker restart
 docker-compose restart broker1
 docker-compose stop producer-service
 docker-compose rm kafka-connect
 docker-compose up -d kafka-connect
 docker-compose up -d zookeeper1 zookeeper2 zookeeper3 broker1 broker2 broker3 kafka-connect 
+docker-compose up -d kafdrop
 docker-compose up -d mongodb metabase
 docker-compose up -d producer-service processor-service
 docker-compose rm -svf
@@ -32,27 +34,35 @@ docker-compose rm -svf
 
 
 # TOPICS KAFKA
-kafka-topics --bootstrap-server broker1:9092 --create --topic data_received --partitions 1 --if-not-exists \
- --config cleanup.policy=delete --config max.message.bytes=2097164
+kafka-topics --bootstrap-server broker1:9092 --create --topic data_received --partitions 1 --replication-factor 3 \
+  --if-not-exists --config cleanup.policy=delete --config max.message.bytes=2097164
 
-kafka-topics --bootstrap-server broker1:9092 --create --topic data_processed --partitions 1 --if-not-exists \
- --config cleanup.policy=delete --config retention.ms=-1 --config max.message.bytes=2097164
+--config min.insync.replicas=2
 
-kafka-topics --bootstrap-server broker1:9092 --create --topic data_received_failed --partitions 1 --if-not-exists \
- --config cleanup.policy=delete --config retention.ms=-1 --config max.message.bytes=2097164
+kafka-topics --bootstrap-server broker1:9092 --create --topic data_processed --partitions 1 --replication-factor 3 \
+  --if-not-exists --config cleanup.policy=delete --config retention.ms=-1 --config max.message.bytes=2097164
 
-kafka-topics --bootstrap-server broker1:9092 --topic data_processed --alter --timeout 150000 --partitions 3
+kafka-topics --bootstrap-server broker1:9092 --create --topic data_received_failed --partitions 1 --replication-factor 3 \
+  --if-not-exists --config cleanup.policy=delete --config retention.ms=-1 --config max.message.bytes=2097164
+
+kafka-topics --bootstrap-server broker1:9092 --topic data_processed --alter --partitions 3
 
 kafka-topics --bootstrap-server broker1:9092 --topic data_received --describe
 
-kafka-topics --bootstrap-server broker1:9092 --topic data_received_faled --delete
+kafka-topics --bootstrap-server broker1:9092 --topic data_received --delete
 
 kafka-topics --bootstrap-server broker1:9092 --list
 
 
-
 kafka-console-producer --bootstrap-server broker1:9092 --topic data_received
 kafka-console-consumer --bootstrap-server broker1:9092 --topic data_processed --from-beginning
+
+
+
+
+# RUN TESTS
+kafka-console-consumer --bootstrap-server broker1:9092,broker2:9094,broker3:9096 --topic data_test
+kafka-console-producer --bootstrap-server broker1:9092,broker2:9094,broker3:9096
 
 
 
@@ -70,7 +80,7 @@ kafka-consumer-groups --bootstrap-server broker1:9092 --group processor-service-
 
 
 
-# KAFKA CONNECTOR (os connectors criados ficam salvos nos tópicos do connect no broker do kafka)
+# KAFKA CONNECTOR (connectors data are saved at kafka broker connectors topic)
 curl -X POST -H "Content-Type: application/json" --data @connector.json http://localhost:8083/connectors
 curl -X DELETE http://localhost:8083/connectors/mongodb-sink-connector
 kafka-console-consumer --bootstrap-server broker1:9092 --topic connect-configs --from-beginning
@@ -78,5 +88,13 @@ kafka-console-consumer --bootstrap-server broker1:9092 --topic connect-status --
 
 
 
-# MONGO -- configuração via interface do Compass (cria database com collection)
-# METABASE -- configuração via interface (conexão com o banco do mongo) (senha rn96is)
+# MONGO -- config via Compass interface (create a database with a collection)
+# METABASE -- config via interface (create a conection with mongo)
+
+
+
+
+# ZOOKEEPER
+echo stat | nc localhost 2181 | grep Mode    # see zookeeper Mode (follower or leader)
+echo stat | nc localhost 2182 | grep Mode
+echo stat | nc localhost 2183 | grep Mode

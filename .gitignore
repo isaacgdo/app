@@ -6,7 +6,9 @@ data/
 .idea/
 
 # Environment files
-*.env
+.env
+processor-service.env
+producer-service.env
 *.pub
 .netrc
 
