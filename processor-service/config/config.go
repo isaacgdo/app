@@ -17,6 +17,7 @@ const (
 	baseApiUrlVar       = "BASE_API_URL"
 	apiKeyVar           = "API_KEY"
 	msgProcessingDelay  = "MSG_PROCESSING_DELAY"
+	workersCapacityVar  = "WORKERS_CAPACITY"
 )
 
 func GetBaseApiUrl() (s string) {
@@ -69,6 +70,13 @@ func getListVar(name string) []string {
 		return []string{}
 	}
 	return strings.Split(eValue, ",")
+}
+
+func GetWorkersCapacity() (n int) {
+	msg := "workers capacity not properly configured. using default value"
+	defaultValue := 1
+	n = getIntVar(workersCapacityVar, msg, defaultValue)
+	return
 }
 
 func getIntVar(name, msg string, defaultValue int) int {

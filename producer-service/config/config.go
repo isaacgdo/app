@@ -16,6 +16,7 @@ const (
 	apiKeyVar          = "API_KEY"
 	fetchIntervalVar   = "FETCH_INTERVAL"
 	youTubeChannelsIds = "YOUTUBE_CHANNELS_IDS"
+	workersCapacityVar = "WORKERS_CAPACITY"
 )
 
 func GetBaseApiUrl() (s string) {
@@ -54,6 +55,13 @@ func GetFetchInterval() (n int) {
 	msg := "fetch interval not properly configured. using default value"
 	defaultValue := 60
 	n = getIntVar(fetchIntervalVar, msg, defaultValue)
+	return
+}
+
+func GetWorkersCapacity() (n int) {
+	msg := "workers capacity not properly configured. using default value"
+	defaultValue := 1
+	n = getIntVar(workersCapacityVar, msg, defaultValue)
 	return
 }
 

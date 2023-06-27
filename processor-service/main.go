@@ -26,6 +26,7 @@ var (
 	baseApiUrl         = config.GetBaseApiUrl()
 	apiKey             = config.GetApiKey()
 	delay              = config.GetMsgProcessingDelay()
+	workersCapacity    = config.GetWorkersCapacity()
 )
 
 func main() {
@@ -66,20 +67,6 @@ func main() {
 	}
 	defer producer.Close()
 
-	// Delivery report handler for produced messages
-	go func() {
-		for e := range producer.Events() {
-			switch ev := e.(type) {
-			case *kafka.Message:
-				if ev.TopicPartition.Error != nil {
-					log.Println("Failed to deliver message to Kafka:", ev.TopicPartition.Error)
-				} else {
-					log.Println("Message sent to Kafka:", ev.TopicPartition)
-				}
-			}
-		}
-	}()
-
 	// Subscribe to the Kafka topic
 	err = consumer.SubscribeTopics(kafkaInputTopics, nil)
 	if err != nil {
@@ -96,7 +83,13 @@ func main() {
 
 	// Start a goroutine to consume messages and a go routine to send messages to kafka output topic
 	go consume(consumer, messageChan, commitCH)
-	go sendOutputMessage(producer, produceChan, kafkaOutputTopic)
+
+	for worker := 1; worker <= workersCapacity; worker++ {
+		go sendOutputMessage(producer, produceChan, kafkaOutputTopic)
+
+		// Delivery report handler for produced messages
+		go deliveryReport(producer)
+	}
 
 	// start a goroutine to process the consumed messages
 	go func() {
@@ -106,7 +99,7 @@ func main() {
 			err = json.Unmarshal(m.Value, &comment)
 			if err != nil {
 				log.Printf("Failed to parse message data: %v \n", err)
-				commitCH <- false
+				commitCH <- true
 				err = sendToKafka(producer, m.Value, kafkaFailuresTopic)
 				if err != nil {
 					log.Printf("Failed to send message to kafka failures topic: %v \n", err)
@@ -138,7 +131,7 @@ func main() {
 	// Wait for the interrupt signal
 	<-signals
 
-	// close channels?
+	close(commitCH)
 	log.Println("Application interrupted. Exiting...")
 }
 
@@ -216,30 +209,49 @@ func createOutputMessages(msg *models.CommentItemData) ([]*models.CommentOutputD
 		log.Println("Video not found")
 		return []*models.CommentOutputData{}, nil
 	}
-	return buildOutputResponse(msg, video.Items[0]), nil
+
+	result, err := buildOutputResponse(msg, video.Items[0])
+	if err != nil {
+		log.Println("Error while building output response:", err)
+		return nil, err
+	}
+	return result, nil
 }
 
-func buildOutputResponse(comment *models.CommentItemData, video *models.VideoItemData) []*models.CommentOutputData {
+func buildOutputResponse(comment *models.CommentItemData, video *models.VideoItemData) ([]*models.CommentOutputData, error) {
 	var commentsList = make([]*models.CommentOutputData, 0, len(comment.Replies.Comments)+1)
 
 	localTimezone, err := time.LoadLocation("America/Sao_Paulo")
 	if err != nil {
-		log.Fatalln("Error while loading timezone", err)
+		log.Println("Error while loading timezone", err)
+		return nil, err
 	}
 
-	videoViewCount, err := strconv.Atoi(video.Statistics.ViewCount)
-	if err != nil {
-		log.Fatalln("Error while converting string", err)
+	var videoViewCount int
+	if video.Statistics.LikeCount != "" {
+		videoViewCount, err = strconv.Atoi(video.Statistics.ViewCount)
+		if err != nil {
+			log.Println("Error while converting videoViewCount string", err)
+			return nil, err
+		}
 	}
 
-	videoLikeCount, err := strconv.Atoi(video.Statistics.LikeCount)
-	if err != nil {
-		log.Fatalln("Error while converting string", err)
+	var videoLikeCount int
+	if video.Statistics.LikeCount != "" {
+		videoLikeCount, err = strconv.Atoi(video.Statistics.LikeCount)
+		if err != nil {
+			log.Println("Error while converting videoLikeCount string", err)
+			return nil, err
+		}
 	}
 
-	videoCommentCount, err := strconv.Atoi(video.Statistics.CommentCount)
-	if err != nil {
-		log.Fatalln("Error while converting string", err)
+	var videoCommentCount int
+	if video.Statistics.CommentCount != "" {
+		videoCommentCount, err = strconv.Atoi(video.Statistics.CommentCount)
+		if err != nil {
+			log.Println("Error while converting videoCommentCount string", err)
+			return nil, err
+		}
 	}
 
 	mainComment := &models.CommentOutputData{
@@ -252,11 +264,10 @@ func buildOutputResponse(comment *models.CommentItemData, video *models.VideoIte
 		AuthorDisplayName: comment.Snippet.TopLevelComment.Snippet.AuthorDisplayName,
 		CanRate:           comment.Snippet.TopLevelComment.Snippet.CanRate,
 		LikeCount:         comment.Snippet.TopLevelComment.Snippet.LikeCount,
-		PublishedAt:       comment.Snippet.TopLevelComment.Snippet.PublishedAt.In(localTimezone).Unix(),
+		PublishedAt:       comment.Snippet.TopLevelComment.Snippet.PublishedAt.In(localTimezone).Format("2006-01-02T15:04:05Z"),
 		CanReply:          comment.Snippet.CanReply,
 		TotalReplyCount:   comment.Snippet.TotalReplyCount,
 		ParentID:          "",
-		VideoPublishedAt:  video.Snippet.PublishedAt.In(localTimezone).Unix(),
 		VideoTitle:        video.Snippet.Title,
 		VideoViewCount:    videoViewCount,
 		VideoLikeCount:    videoLikeCount,
@@ -277,11 +288,10 @@ func buildOutputResponse(comment *models.CommentItemData, video *models.VideoIte
 			AuthorDisplayName: reply.Snippet.AuthorDisplayName,
 			CanRate:           reply.Snippet.CanRate,
 			LikeCount:         reply.Snippet.LikeCount,
-			PublishedAt:       reply.Snippet.PublishedAt.In(localTimezone).Unix(),
+			PublishedAt:       reply.Snippet.PublishedAt.In(localTimezone).Format("2006-01-02T15:04:05Z"),
 			CanReply:          false,
 			TotalReplyCount:   0,
 			ParentID:          reply.Snippet.ParentID,
-			VideoPublishedAt:  video.Snippet.PublishedAt.In(localTimezone).Unix(),
 			VideoTitle:        video.Snippet.Title,
 			VideoViewCount:    videoViewCount,
 			VideoLikeCount:    videoLikeCount,
@@ -290,7 +300,7 @@ func buildOutputResponse(comment *models.CommentItemData, video *models.VideoIte
 		}
 		commentsList = append(commentsList, r)
 	}
-	return commentsList
+	return commentsList, nil
 }
 
 func sendOutputMessage(producer *kafka.Producer, produceChan <-chan *models.CommentOutputData, topic string) {
@@ -308,6 +318,20 @@ func sendOutputMessage(producer *kafka.Producer, produceChan <-chan *models.Comm
 
 	// Wait for any outstanding messages to be delivered before exiting
 	producer.Flush(15000)
+}
+
+// Delivery report handler for produced messages
+func deliveryReport(producer *kafka.Producer) {
+	for e := range producer.Events() {
+		switch ev := e.(type) {
+		case *kafka.Message:
+			if ev.TopicPartition.Error != nil {
+				log.Println("Failed to deliver message to Kafka:", ev.TopicPartition.Error)
+			} else {
+				log.Println("Message sent to Kafka:", ev.TopicPartition)
+			}
+		}
+	}
 }
 
 func sendToKafka(producer *kafka.Producer, message []byte, topic string) error {

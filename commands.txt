@@ -1,14 +1,16 @@
 # DATA FILES
-mkdir -p datakafka/zookeeper1/data && \
-mkdir -p datakafka/zookeeper1/log && \
-mkdir -p datakafka/zookeeper2/data && \
-mkdir -p datakafka/zookeeper2/log && \
-mkdir -p datakafka/zookeeper3/data && \
-mkdir -p datakafka/zookeeper3/log && \
-mkdir -p datakafka/broker1/data && \
-mkdir -p datakafka/broker2/data && \
-mkdir -p datakafka/broker3/data && \
-sudo chown -R 1000:1000 datakafka
+mkdir -p data/metabase && \
+mkdir -p data/mongodb && \
+mkdir -p data/zookeeper1/data && \
+mkdir -p data/zookeeper1/log && \
+mkdir -p data/zookeeper2/data && \
+mkdir -p data/zookeeper2/log && \
+mkdir -p data/zookeeper3/data && \
+mkdir -p data/zookeeper3/log && \
+mkdir -p data/broker1/data && \
+mkdir -p data/broker2/data && \
+mkdir -p data/broker3/data && \
+sudo chown -R 1000:1000 data
 
 
 
@@ -49,7 +51,7 @@ kafka-topics --bootstrap-server broker1:9092 --topic data_processed --alter --pa
 
 kafka-topics --bootstrap-server broker1:9092 --topic data_received --describe
 
-kafka-topics --bootstrap-server broker1:9092 --topic data_received --delete
+kafka-topics --bootstrap-server broker1:9092 --topic data_processed --delete
 
 kafka-topics --bootstrap-server broker1:9092 --list
 

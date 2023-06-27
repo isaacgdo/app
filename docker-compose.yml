@@ -9,8 +9,8 @@ services:
     env_file:
       - ./envs/zookeeper1.env
     volumes: 
-      - ./datakafka/zookeeper1/data:/var/lib/zookeeper/data
-      - ./datakafka/zookeeper1/log:/var/lib/zookeeper/log
+      - ./data/zookeeper1/data:/var/lib/zookeeper/data
+      - ./data/zookeeper1/log:/var/lib/zookeeper/log
     networks:
       - app-network
 
@@ -23,8 +23,8 @@ services:
     env_file:
       - ./envs/zookeeper2.env
     volumes:
-      - ./datakafka/zookeeper2/data:/var/lib/zookeeper/data
-      - ./datakafka/zookeeper2/log:/var/lib/zookeeper/log
+      - ./data/zookeeper2/data:/var/lib/zookeeper/data
+      - ./data/zookeeper2/log:/var/lib/zookeeper/log
     networks:
       - app-network
 
@@ -37,8 +37,8 @@ services:
     env_file:
       - ./envs/zookeeper3.env
     volumes:
-      - ./datakafka/zookeeper3/data:/var/lib/zookeeper/data
-      - ./datakafka/zookeeper3/log:/var/lib/zookeeper/log
+      - ./data/zookeeper3/data:/var/lib/zookeeper/data
+      - ./data/zookeeper3/log:/var/lib/zookeeper/log
     networks:
       - app-network
     
@@ -55,7 +55,7 @@ services:
     env_file:
       - ./envs/broker1.env
     volumes:
-      - ./datakafka/broker1/data:/var/lib/kafka/data
+      - ./data/broker1/data:/var/lib/kafka/data
     networks:
       - app-network
 
@@ -72,7 +72,7 @@ services:
     env_file:
       - ./envs/broker2.env
     volumes:
-      - ./datakafka/broker2/data:/var/lib/kafka/data
+      - ./data/broker2/data:/var/lib/kafka/data
     networks:
       - app-network
 
@@ -89,7 +89,7 @@ services:
     env_file:
       - ./envs/broker3.env
     volumes:
-      - ./datakafka/broker3/data:/var/lib/kafka/data
+      - ./data/broker3/data:/var/lib/kafka/data
     networks:
       - app-network
 
@@ -156,7 +156,7 @@ services:
     ports:
       - 19000:9000
     environment:
-      KAFKA_BROKERCONNECT: broker1:9092
+      KAFKA_BROKERCONNECT: broker1:9092,broker2:9094,broker3:9096
     networks: 
       - app-network
 

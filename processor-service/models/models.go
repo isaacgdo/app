@@ -103,11 +103,10 @@ type CommentOutputData struct {
 	AuthorDisplayName string   `json:"authorDisplayName"`
 	CanRate           bool     `json:"canRate"`
 	LikeCount         int      `json:"likeCount"`
-	PublishedAt       int64    `json:"publishedAt"`
+	PublishedAt       string   `json:"publishedAt"`
 	CanReply          bool     `json:"canReply"`
 	TotalReplyCount   int      `json:"totalReplyCount"`
 	ParentID          string   `json:"parentId"` // is reply
-	VideoPublishedAt  int64    `json:"videoPublishedAt"`
 	VideoTitle        string   `json:"videoTitle"`
 	VideoViewCount    int      `json:"videoViewCount"`
 	VideoLikeCount    int      `json:"videoLikeCount"`

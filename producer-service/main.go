@@ -18,12 +18,13 @@ import (
 )
 
 var (
-	baseApiUrl    = config.GetBaseApiUrl()
-	kafkaBrokers  = config.GetKafkaBrokers()
-	kafkaTopic    = config.GetKafkaTopic()
-	apiKey        = config.GetApiKey()
-	fetchInterval = config.GetFetchInterval()
-	ytChannelsIds = config.GetYouTubeChannelsIds()
+	baseApiUrl      = config.GetBaseApiUrl()
+	kafkaBrokers    = config.GetKafkaBrokers()
+	kafkaTopic      = config.GetKafkaTopic()
+	apiKey          = config.GetApiKey()
+	fetchInterval   = config.GetFetchInterval()
+	ytChannelsIds   = config.GetYouTubeChannelsIds()
+	workersCapacity = config.GetWorkersCapacity()
 )
 
 func main() {
@@ -52,12 +53,17 @@ func main() {
 
 	dataChan := make(chan *models.CommentItemData)
 
-	// go routines to retrieve data and send to kafka
+	// go routines to retrieve data for each channel
 	for _, channelId := range ytChannelsIds {
 		go fetchCommentsData(dataChan, channelId)
 	}
 
-	go sendToKafka(producer, dataChan)
+	for worker := 1; worker <= workersCapacity; worker++ {
+		// go routine to send data to kafka
+		go sendToKafka(producer, dataChan)
+		// go routine to delivery report of messages sent to kafka
+		go deliveryReport(producer)
+	}
 
 	// Wait for the interrupt signal
 	<-signals
@@ -134,7 +140,8 @@ func fetchCommentsData(dataChan chan<- *models.CommentItemData, channelId string
 	}
 }
 
-func iterateCommentItems(dataChan chan<- *models.CommentItemData, data *models.CommentData, latestCommentDate, latestFetchDate *time.Time) (nextPage string) {
+func iterateCommentItems(dataChan chan<- *models.CommentItemData, data *models.CommentData,
+	latestCommentDate, latestFetchDate *time.Time) (nextPage string) {
 	// Send the data to the channel
 	for _, item := range data.Items {
 		// verifying if is the last comment published
@@ -164,21 +171,21 @@ func createMessage(data *models.CommentItemData) ([]byte, error) {
 	return message, nil
 }
 
-func sendToKafka(producer *kafka.Producer, dataChan <-chan *models.CommentItemData) {
-	// Delivery report handler for produced messages
-	go func() {
-		for e := range producer.Events() {
-			switch ev := e.(type) {
-			case *kafka.Message:
-				if ev.TopicPartition.Error != nil {
-					log.Println("Failed to deliver message to Kafka:", ev.TopicPartition.Error)
-				} else {
-					log.Println("Message sent to Kafka:", ev.TopicPartition)
-				}
+// Delivery report handler for produced messages
+func deliveryReport(producer *kafka.Producer) {
+	for e := range producer.Events() {
+		switch ev := e.(type) {
+		case *kafka.Message:
+			if ev.TopicPartition.Error != nil {
+				log.Println("Failed to deliver message to Kafka:", ev.TopicPartition.Error)
+			} else {
+				log.Println("Message sent to Kafka:", ev.TopicPartition)
 			}
 		}
-	}()
+	}
+}
 
+func sendToKafka(producer *kafka.Producer, dataChan <-chan *models.CommentItemData) {
 	for data := range dataChan {
 		message, err := createMessage(data)
 		if err != nil {
@@ -187,9 +194,7 @@ func sendToKafka(producer *kafka.Producer, dataChan <-chan *models.CommentItemDa
 		}
 
 		log.Printf(
-			"comment to send to kafka -> date: %s -> channel: %s -> comment: %s \n",
-			data.Snippet.TopLevelComment.Snippet.PublishedAt,
-			data.Snippet.ChannelID,
+			"comment to send to kafka: %s \n",
 			data.Snippet.TopLevelComment.Snippet.TextDisplay,
 		)
 
