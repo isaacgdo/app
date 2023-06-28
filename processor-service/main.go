@@ -92,7 +92,7 @@ func main() {
 		go processMessage(messageChan, commitCH, produceChan, producer, cache)
 
 		// start a go routine to send messages to kafka output topic
-		go sendOutputMessage(producer, produceChan, kafkaOutputTopic)
+		go sendOutputMessage(producer, produceChan)
 
 		// Delivery report handler for produced messages
 		go deliveryReport(producer)
@@ -340,14 +340,14 @@ func buildOutputResponse(comment *models.CommentItemData, video *models.VideoIte
 	return commentsList, nil
 }
 
-func sendOutputMessage(producer *kafka.Producer, produceChan <-chan *models.CommentOutputData, topic string) {
+func sendOutputMessage(producer *kafka.Producer, produceChan <-chan *models.CommentOutputData) {
 	for data := range produceChan {
 		message, err := json.Marshal(data)
 		if err != nil {
 			log.Println("Failed to create message:", err)
 		}
 
-		err = sendToKafka(producer, message, topic)
+		err = sendToKafka(producer, message, kafkaOutputTopic)
 		if err != nil {
 			log.Println("Failed to send message to kafka output topic:", err)
 		}
