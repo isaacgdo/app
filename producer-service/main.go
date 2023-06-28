@@ -37,9 +37,8 @@ func main() {
 			"bootstrap.servers":  kafkaBrokers,
 			"acks":               "all",
 			"retries":            5,
-			"retry.backoff.ms":   100,
-			"request.timeout.ms": 5000,
-			"message.max.bytes":  2097164, // the same of kafka topics
+			"retry.backoff.ms":   1000,
+			"request.timeout.ms": 10000,
 			"client.id":          "producer-service",
 			// min.insync.replicas
 			// linger.ms   // batch by time
@@ -67,9 +66,10 @@ func main() {
 
 	// Wait for the interrupt signal
 	<-signals
-
-	close(dataChan)
 	log.Println("Application interrupted. Exiting...")
+
+	// Wait for any outstanding messages to be delivered before exiting
+	producer.Flush(15000)
 }
 
 func fetchCommentsData(dataChan chan<- *models.CommentItemData, channelId string) {
@@ -208,9 +208,6 @@ func sendToKafka(producer *kafka.Producer, dataChan <-chan *models.CommentItemDa
 			continue
 		}
 	}
-
-	// Wait for any outstanding messages to be delivered before exiting
-	producer.Flush(15000)
 }
 
 func compareDates(date1, date2 time.Time) bool {

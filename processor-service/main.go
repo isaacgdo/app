@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/patrickmn/go-cache"
 )
 
 var (
@@ -27,6 +28,7 @@ var (
 	apiKey             = config.GetApiKey()
 	delay              = config.GetMsgProcessingDelay()
 	workersCapacity    = config.GetWorkersCapacity()
+	cacheTTL           = config.GetCacheTTL()
 )
 
 func main() {
@@ -56,9 +58,8 @@ func main() {
 			"bootstrap.servers":  kafkaBrokers,
 			"acks":               "all",
 			"retries":            5,
-			"retry.backoff.ms":   100,
-			"request.timeout.ms": 5000,
-			"message.max.bytes":  2097164, // the same of kafka topics
+			"retry.backoff.ms":   1000,
+			"request.timeout.ms": 10000,
 			"client.id":          "processor-service",
 		},
 	)
@@ -66,6 +67,8 @@ func main() {
 		log.Println("Failed to create Kafka producer:", err)
 	}
 	defer producer.Close()
+
+	cache := config.NewCache()
 
 	// Subscribe to the Kafka topic
 	err = consumer.SubscribeTopics(kafkaInputTopics, nil)
@@ -85,54 +88,64 @@ func main() {
 	go consume(consumer, messageChan, commitCH)
 
 	for worker := 1; worker <= workersCapacity; worker++ {
+		// start a goroutine to process the consumed messages
+		go processMessage(messageChan, commitCH, produceChan, producer, cache)
+
+		// start a go routine to send messages to kafka output topic
 		go sendOutputMessage(producer, produceChan, kafkaOutputTopic)
 
 		// Delivery report handler for produced messages
 		go deliveryReport(producer)
 	}
 
-	// start a goroutine to process the consumed messages
-	go func() {
-		for m := range messageChan {
-			// Process the consumed message
-			var comment models.CommentItemData
-			err = json.Unmarshal(m.Value, &comment)
-			if err != nil {
-				log.Printf("Failed to parse message data: %v \n", err)
-				commitCH <- true
-				err = sendToKafka(producer, m.Value, kafkaFailuresTopic)
-				if err != nil {
-					log.Printf("Failed to send message to kafka failures topic: %v \n", err)
-				}
-				continue
-			}
-			log.Printf("Received message: %s  \n", comment.Snippet.TopLevelComment.Snippet.TextDisplay)
-
-			msgs, errM := createOutputMessages(&comment)
-			if errM != nil {
-				err = sendToKafka(producer, m.Value, kafkaFailuresTopic)
-				if err != nil {
-					log.Printf("Failed to send message to kafka failures topic: %v \n", err)
-				}
-			}
-
-			for _, msg := range msgs {
-				produceChan <- msg
-			}
-
-			commitCH <- true
-
-			if delay > 0 {
-				time.Sleep(time.Duration(delay) * time.Second)
-			}
-		}
-	}()
-
 	// Wait for the interrupt signal
 	<-signals
-
-	close(commitCH)
 	log.Println("Application interrupted. Exiting...")
+
+	// Wait for any outstanding messages to be delivered before exiting
+	producer.Flush(3000)
+}
+
+func processMessage(messageChan chan *kafka.Message, commitCH chan<- bool,
+	produceChan chan *models.CommentOutputData, producer *kafka.Producer, cache *cache.Cache) {
+	for m := range messageChan {
+		// Process the consumed message
+		var comment models.CommentItemData
+		err := json.Unmarshal(m.Value, &comment)
+		if err != nil {
+			log.Printf("Failed to parse message data: %v \n", err)
+			commitCH <- true
+
+			err = sendToKafka(producer, m.Value, kafkaFailuresTopic)
+			if err != nil {
+				log.Printf("Failed to send message to kafka failures topic: %v \n", err)
+			}
+			continue
+		}
+		log.Printf("Received message: %s  \n", comment.Snippet.TopLevelComment.Snippet.TextDisplay)
+
+		msgs, errM := createOutputMessages(&comment, cache)
+		if errM != nil {
+			log.Printf("Failed to create output message: %v \n", err)
+			commitCH <- true
+
+			err = sendToKafka(producer, m.Value, kafkaFailuresTopic)
+			if err != nil {
+				log.Printf("Failed to send message to kafka failures topic: %v \n", err)
+			}
+			continue
+		}
+
+		for _, msg := range msgs {
+			produceChan <- msg
+		}
+
+		commitCH <- true
+
+		if delay > 0 {
+			time.Sleep(time.Duration(delay) * time.Second)
+		}
+	}
 }
 
 // consume consumes messages from kafka and wait for a command to commit the message
@@ -162,55 +175,79 @@ func consume(consumer *kafka.Consumer, messageChan chan *kafka.Message, commitCH
 	}
 }
 
-func createOutputMessages(msg *models.CommentItemData) ([]*models.CommentOutputData, error) {
-	videoEndpoint := fmt.Sprintf("%s/videos/", baseApiUrl)
-	params := url.Values{}
-	params.Set("part", "id,snippet,statistics,topicDetails")
-	params.Set("id", msg.Snippet.VideoID)
-	params.Set("key", apiKey)
+func createOutputMessages(msg *models.CommentItemData, cache *cache.Cache) ([]*models.CommentOutputData, error) {
+	var videoRawData []byte
 
-	u, err := url.Parse(videoEndpoint)
-	if err != nil {
-		log.Println("Error parsing URL:", err)
-		return nil, err
+	v, found := cache.Get(msg.Snippet.VideoID)
+	if found {
+		log.Println("Video data found at cache, using it:", msg.Snippet.VideoID)
+		videoRawData = v.([]byte)
+	} else {
+		log.Println("Video not found at cache, starting fetching from API")
+		videoEndpoint := fmt.Sprintf("%s/videos/", baseApiUrl)
+		params := url.Values{}
+		params.Set("part", "id,snippet,statistics,topicDetails")
+		params.Set("id", msg.Snippet.VideoID)
+		params.Set("key", apiKey)
+
+		u, err := url.Parse(videoEndpoint)
+		if err != nil {
+			log.Println("Error parsing API URL:", err)
+			return nil, err
+		}
+
+		u.RawQuery = params.Encode()
+		fullURL := u.String()
+
+		resp, err := http.Get(fullURL)
+		if err != nil {
+			log.Println("Error while fetching data form API:", err)
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			log.Println("API request returned non-OK status:", resp.StatusCode)
+			return nil, err
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Println("Error while reading response body:", err)
+			return nil, err
+		}
+		log.Println("Video data retrieved from API")
+
+		var videoList models.VideoListData
+		err = json.Unmarshal(body, &videoList)
+		if err != nil {
+			log.Println("Error while unmarshalling json:", err)
+			return nil, err
+		}
+
+		if len(videoList.Items) == 0 {
+			log.Println("Video not found")
+			return []*models.CommentOutputData{}, nil
+		}
+
+		videoRawData, err = json.Marshal(videoList.Items[0])
+		if err != nil {
+			log.Println("Error while marshalling video data:", err)
+			return nil, err
+		}
+
+		cache.Set(msg.Snippet.VideoID, videoRawData, time.Duration(cacheTTL)*time.Second)
+		log.Println("New video cached:", msg.Snippet.VideoID)
 	}
 
-	u.RawQuery = params.Encode()
-	fullURL := u.String()
-
-	resp, err := http.Get(fullURL)
-	if err != nil {
-		log.Println("Error while fetching data:", err)
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		log.Println("API request returned non-OK status:", resp.StatusCode)
-		resp.Body.Close()
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Println("Error while reading response body:", err)
-		return nil, err
-	}
-	log.Println("Video data retrieved")
-
-	var video models.VideoListData
-	err = json.Unmarshal(body, &video)
+	var video models.VideoItemData
+	err := json.Unmarshal(videoRawData, &video)
 	if err != nil {
 		log.Println("Error while unmarshalling json:", err)
 		return nil, err
 	}
 
-	if len(video.Items) == 0 {
-		log.Println("Video not found")
-		return []*models.CommentOutputData{}, nil
-	}
-
-	result, err := buildOutputResponse(msg, video.Items[0])
+	result, err := buildOutputResponse(msg, &video)
 	if err != nil {
 		log.Println("Error while building output response:", err)
 		return nil, err
@@ -315,9 +352,6 @@ func sendOutputMessage(producer *kafka.Producer, produceChan <-chan *models.Comm
 			log.Println("Failed to send message to kafka output topic:", err)
 		}
 	}
-
-	// Wait for any outstanding messages to be delivered before exiting
-	producer.Flush(15000)
 }
 
 // Delivery report handler for produced messages

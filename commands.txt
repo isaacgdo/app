@@ -36,16 +36,11 @@ docker-compose rm -svf
 
 
 # TOPICS KAFKA
-kafka-topics --bootstrap-server broker1:9092 --create --topic data_received --partitions 1 --replication-factor 3 \
-  --if-not-exists --config cleanup.policy=delete --config max.message.bytes=2097164
+kafka-topics --bootstrap-server broker1:9092 --create --topic data_received --partitions 1 --replication-factor 3 --if-not-exists --config min.insync.replicas=2
 
---config min.insync.replicas=2
+kafka-topics --bootstrap-server broker1:9092 --create --topic data_processed --partitions 1 --replication-factor 3 --if-not-exists --config retention.ms=-1 --config min.insync.replicas=2
 
-kafka-topics --bootstrap-server broker1:9092 --create --topic data_processed --partitions 1 --replication-factor 3 \
-  --if-not-exists --config cleanup.policy=delete --config retention.ms=-1 --config max.message.bytes=2097164
-
-kafka-topics --bootstrap-server broker1:9092 --create --topic data_received_failed --partitions 1 --replication-factor 3 \
-  --if-not-exists --config cleanup.policy=delete --config retention.ms=-1 --config max.message.bytes=2097164
+kafka-topics --bootstrap-server broker1:9092 --create --topic data_received_failed --partitions 1 --replication-factor 3 --if-not-exists --config retention.ms=-1 --config min.insync.replicas=2
 
 kafka-topics --bootstrap-server broker1:9092 --topic data_processed --alter --partitions 3
 
@@ -97,6 +92,4 @@ kafka-console-consumer --bootstrap-server broker1:9092 --topic connect-status --
 
 
 # ZOOKEEPER
-echo stat | nc localhost 2181 | grep Mode    # see zookeeper Mode (follower or leader)
-echo stat | nc localhost 2182 | grep Mode
-echo stat | nc localhost 2183 | grep Mode
+echo "srvr" | nc localhost 2183   # see zookeeper Mode (follower or leader)

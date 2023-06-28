@@ -5,8 +5,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/joho/godotenv/autoload" // load envs
+	"github.com/patrickmn/go-cache"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 	apiKeyVar           = "API_KEY"
 	msgProcessingDelay  = "MSG_PROCESSING_DELAY"
 	workersCapacityVar  = "WORKERS_CAPACITY"
+	cacheTTLVar         = "CACHE_TTL"
 )
 
 func GetBaseApiUrl() (s string) {
@@ -94,4 +97,20 @@ func GetMsgProcessingDelay() (n int) {
 	defaultValue := 0
 	n = getIntVar(msgProcessingDelay, msg, defaultValue)
 	return
+}
+
+func GetCacheTTL() (n int) {
+	msg := "credentials ttl not properly configured. using default values."
+	defaultValue := 300 // 5 minutes
+	n = getIntVar(cacheTTLVar, msg, defaultValue)
+	return
+}
+
+func NewCache() *cache.Cache {
+	exp := GetCacheTTL()
+	purge := exp * 2
+	return cache.New(
+		time.Duration(exp)*time.Second,
+		time.Duration(purge)*time.Second,
+	)
 }
