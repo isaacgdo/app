@@ -101,10 +101,8 @@ type CommentOutputData struct {
 	TextDisplay       string   `json:"textDisplay"`
 	TextOriginal      string   `json:"textOriginal"`
 	AuthorDisplayName string   `json:"authorDisplayName"`
-	CanRate           bool     `json:"canRate"`
 	LikeCount         int      `json:"likeCount"`
 	PublishedAt       string   `json:"publishedAt"`
-	CanReply          bool     `json:"canReply"`
 	TotalReplyCount   int      `json:"totalReplyCount"`
 	ParentID          string   `json:"parentId"` // is reply
 	VideoTitle        string   `json:"videoTitle"`

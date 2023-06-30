@@ -27,9 +27,7 @@ docker-compose restart broker1
 docker-compose stop producer-service
 docker-compose rm kafka-connect
 docker-compose up -d kafka-connect
-docker-compose up -d zookeeper1 zookeeper2 zookeeper3 broker1 broker2 broker3 kafka-connect 
-docker-compose up -d kafdrop
-docker-compose up -d mongodb metabase
+docker-compose up -d zookeeper1 zookeeper2 zookeeper3 broker1 broker2 broker3 kafdrop mongodb metabase kafka-connect 
 docker-compose up -d producer-service processor-service
 docker-compose rm -svf
 

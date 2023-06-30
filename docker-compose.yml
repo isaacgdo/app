@@ -2,6 +2,7 @@ version: '3'
 services:
   zookeeper1:
     image: confluentinc/cp-zookeeper:latest
+    restart: on-failure
     hostname: zookeeper1
     container_name: zookeeper1
     ports:
@@ -16,6 +17,7 @@ services:
 
   zookeeper2:
     image: confluentinc/cp-zookeeper:latest
+    restart: on-failure
     hostname: zookeeper2
     container_name: zookeeper2
     ports:
@@ -30,6 +32,7 @@ services:
 
   zookeeper3:
     image: confluentinc/cp-zookeeper:latest
+    restart: on-failure
     hostname: zookeeper3
     container_name: zookeeper3
     ports:
@@ -44,6 +47,7 @@ services:
     
   broker1:
     image: confluentinc/cp-kafka:latest
+    restart: on-failure
     hostname: broker1
     container_name: broker1
     ports:
@@ -61,6 +65,7 @@ services:
 
   broker2:
     image: confluentinc/cp-kafka:latest
+    restart: on-failure
     hostname: broker2
     container_name: broker2
     ports:
@@ -78,6 +83,7 @@ services:
 
   broker3:
     image: confluentinc/cp-kafka:latest
+    restart: on-failure
     hostname: broker3
     container_name: broker3
     ports:
@@ -97,6 +103,7 @@ services:
     build: ./producer-service
     hostname: producer-service
     container_name: producer-service
+    restart: on-failure
     depends_on:
       - broker1
       - broker2
@@ -110,6 +117,7 @@ services:
     build: ./processor-service
     hostname: processor-service
     container_name: processor-service
+    restart: on-failure
     depends_on:
       - broker1
       - broker2
@@ -121,6 +129,7 @@ services:
 
   kafka-connect:
     image: confluentinc/cp-kafka-connect:latest
+    restart: on-failure
     hostname: kafka-connect
     container_name: kafka-connect
     ports:
@@ -129,6 +138,7 @@ services:
       - broker1
       - broker2
       - broker3
+      - mongodb
     env_file:
       - ./envs/connect.env
     command:
@@ -147,6 +157,7 @@ services:
 
   kafdrop:
     image: obsidiandynamics/kafdrop:latest
+    restart: on-failure
     hostname: kafdrop
     container_name: kafdrop
     depends_on:
@@ -155,13 +166,14 @@ services:
       - broker3
     ports:
       - 19000:9000
-    environment:
-      KAFKA_BROKERCONNECT: broker1:9092,broker2:9094,broker3:9096
+    env_file:
+      - ./envs/kafdrop.env
     networks: 
       - app-network
 
   mongodb:
     image: mongo:latest
+    restart: on-failure
     hostname: mongodb
     container_name: mongodb
     ports:
@@ -173,6 +185,7 @@ services:
 
   metabase:
     image: metabase/metabase:latest
+    restart: on-failure
     hostname: metabase
     container_name: metabase
     ports:
