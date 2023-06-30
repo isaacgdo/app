@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -207,7 +208,7 @@ func createOutputMessages(msg *models.CommentItemData, cache *cache.Cache) ([]*m
 
 		if resp.StatusCode != http.StatusOK {
 			log.Println("API request returned non-OK status:", resp.StatusCode)
-			return nil, err
+			return nil, errors.New("API request returned non-OK status")
 		}
 
 		body, err := io.ReadAll(resp.Body)
